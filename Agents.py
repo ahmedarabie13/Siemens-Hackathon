@@ -3,7 +3,6 @@ import json
 from crewai import Agent, Task, Crew
 from langchain_openai import ChatOpenAI
 
-
 # 🔴 Ensure CrewAI Telemetry is Fully Disabled
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
 os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""  # Prevent OpenTelemetry timeout
