@@ -1,7 +1,7 @@
 # app/controllers/agent_controller.py
 
 from flask import Blueprint, request, jsonify
-from app.services.agent_service import create_agent, get_agents, get_agent, update_agent, delete_agent
+from app.services.agent_service import create_agent, get_agents, get_agent, update_agent, delete_agent, create_agents
 
 agent_bp = Blueprint('agent', __name__)
 
@@ -10,6 +10,13 @@ def create_agent_route():
     data = request.get_json()
     result, status = create_agent(data)
     return jsonify(result), status
+
+@agent_bp.route('/bulk', methods=['POST'])
+def create_agents_route():
+    data_list = request.get_json()
+    result, status = create_agents(data_list)
+    return jsonify(result), status
+
 
 @agent_bp.route('', methods=['GET'])
 def get_agents_route():
