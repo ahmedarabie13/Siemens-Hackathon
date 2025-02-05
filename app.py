@@ -22,6 +22,12 @@ def transform_doc(doc):
     doc['_id'] = str(doc['_id'])
     return doc
 
+def get_siemens_agents():
+    """Retrieve all agents and return them as a Python list."""
+
+    agents_cursor = mongo.db.agents.find()
+    agents = [transform_doc(agent) for agent in agents_cursor]
+    return agents
 
 # ------------------------------------------------------------------------------
 # CRUD Endpoints for "agent"
@@ -223,4 +229,4 @@ def handle_chat_message(data):
 # ------------------------------------------------------------------------------
 if __name__ == '__main__':
     # Run with SocketIO to support WebSocket endpoints.
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=7070, debug=True ,allow_unsafe_werkzeug=True)
