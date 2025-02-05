@@ -1,7 +1,9 @@
-from flask import Flask, request, jsonify
-from flask_socketio import SocketIO, send, emit
-from flask_pymongo import PyMongo
+from datetime import datetime
+
 from bson import ObjectId
+from flask import Flask, request, jsonify
+from flask_pymongo import PyMongo
+from flask_socketio import SocketIO
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'supersecretkey'
@@ -161,6 +163,31 @@ def update_chat(chat_id):
     return jsonify(transform_doc(chat)), 200
 
 
+@app.route('/chat/<chat_id>/message', methods=['POST'])
+def send_message(chat_id):
+    """Send message from user to the chat."""
+    data = request.get_json()
+    if not data or 'message' not in data:
+        return jsonify({'error': 'Missing required field: title'}), 400
+
+    chat = mongo.db.chats.find_one({"_id": ObjectId(chat_id)})
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    chat['messages'].append({'message': data['message'],
+                             'owner': 'USER',
+                             'timestamp': str(timestamp)})
+
+    try:
+        result = mongo.db.chats.update_one({"_id": ObjectId(chat_id)}, {"$set": chat})
+    except Exception:
+        return jsonify({'error': 'Invalid chat ID'}), 400
+    if result.matched_count == 0:
+        return jsonify({'error': 'Chat not found'}), 404
+
+    # TODO: call the crew and wait for the results then update the chat with it
+
+    return jsonify(transform_doc(chat)), 200
+
+
 @app.route('/chat/<chat_id>', methods=['DELETE'])
 def delete_chat(chat_id):
     """Delete a chat session."""
@@ -172,50 +199,6 @@ def delete_chat(chat_id):
     if result.deleted_count == 0:
         return jsonify({'error': 'Chat not found'}), 404
     return jsonify({'result': 'Chat deleted'}), 200
-
-
-# ------------------------------------------------------------------------------
-# WebSocket Endpoints for Messaging using Flask-SocketIO
-# ------------------------------------------------------------------------------
-@socketio.on('message')
-def handle_message(message):
-    """
-    A basic WebSocket message event handler.
-    This echoes back any received message to all connected clients.
-    """
-    app.logger.info(f"Received message: {message}")
-    send(message, broadcast=True)
-
-
-@socketio.on('chat_message')
-def handle_chat_message(data):
-    """
-    Handles a chat message sent via WebSocket.
-    Expects data to contain 'chat_id' and 'message'. The message is added
-    to the chat session's messages and the updated chat is broadcast.
-    """
-    chat_id = data.get('chat_id')
-    message = data.get('message')
-    if chat_id is None or message is None:
-        emit('error', {'error': 'chat_id and message required'})
-        return
-
-    try:
-        result = mongo.db.chats.update_one(
-            {"_id": ObjectId(chat_id)},
-            {"$push": {"messages": message}}
-        )
-    except Exception:
-        emit('error', {'error': 'Invalid chat ID'})
-        return
-
-    if result.matched_count == 0:
-        emit('error', {'error': 'Chat not found'})
-        return
-
-    chat = mongo.db.chats.find_one({"_id": ObjectId(chat_id)})
-    app.logger.info(f"Chat {chat_id} updated with new message: {message}")
-    emit('chat_update', transform_doc(chat), broadcast=True)
 
 
 # ------------------------------------------------------------------------------
