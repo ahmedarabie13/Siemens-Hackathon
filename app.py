@@ -5,6 +5,8 @@ from flask import Flask, request, jsonify
 from flask_pymongo import PyMongo
 from flask_socketio import SocketIO
 
+from Agents import run_orchestrator
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'supersecretkey'
 
@@ -190,7 +192,7 @@ def send_message(chat_id):
         return jsonify({'error': 'Chat not found'}), 404
 
     # TODO: call the crew and wait for the results then update the chat with it
-
+    agent_result=run_orchestrator(data, get_siemens_agents())
     return jsonify(transform_doc(chat)), 200
 
 

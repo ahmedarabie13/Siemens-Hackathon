@@ -23,11 +23,10 @@ AGENTS_JSON_FILE = "predefined_agents.json"
 # Create agents dynamically
 
 def get_agents(agents):
-    print(agents)
     agents_list = [
         Agent(
             role=agent["role"],
-            goal=agent["goal"],
+            goal=agent["goals"],
             backstory=agent["backstory"],
             llm=llm
         ) for agent in agents
@@ -41,9 +40,9 @@ def get_agents(agents):
 def run_orchestrator(data, agents):
 
     siemens_agents= get_agents(agents)
-    print("Received Task Data:", data["description"])
+    print("Received Task Data:", data["message"])
 
-    if "description" not in data:
+    if "message" not in data:
         return
 
     try:
@@ -55,8 +54,8 @@ def run_orchestrator(data, agents):
         )
 
         user_task = Task(
-            description=data["description"],
-            expected_output=data["expected_output"],
+            description=data["message"],
+            expected_output="Determine which applications are relevant and explain their contributions.",
             agent=orchestrator_agent,
             llm=llm
         )
