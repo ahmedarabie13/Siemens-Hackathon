@@ -1,6 +1,10 @@
 # app/services/chat_service.py
-
+import json
+import threading
 from datetime import datetime
+
+
+from Agents import run_orchestrator
 from app.repositories.chat_repository import (
     insert_chat,
     find_chats,
@@ -8,6 +12,8 @@ from app.repositories.chat_repository import (
     update_chat_by_id,
     delete_chat_by_id,
 )
+from app.services.agent_service import get_agents
+
 
 def create_chat(data):
     if not data or 'title' not in data:
@@ -71,7 +77,20 @@ def send_message(chat_id, data):
         return {'error': 'Invalid chat ID'}, 400
     if not updated:
         return {'error': 'Chat not found'}, 404
+    agents = get_agents()[0]
+    threading.Thread(target=chat_and_publish, args=(chat, data, agents,)).start()
+
     return updated, 200
+
+def chat_and_publish(chat, message, agents):
+    result = run_orchestrator(message, agents)
+    print('Results from chat:', result)
+    result_message = {
+        'message': result,
+        'owner': 'SYSTEM',
+        'timestamp': str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    }
+    # update_chat_by_id(chat['_id'], {'messages': chat['messages'] + result_message})
 
 def delete_chat(chat_id):
     try:
@@ -81,3 +100,10 @@ def delete_chat(chat_id):
     if not deleted:
         return {'error': 'Chat not found'}, 404
     return {'result': 'Chat deleted'}, 200
+
+# def get_siemens_agents():
+#     """Retrieve all agents and return them as a Python list."""
+#
+#     agents_cursor = mongo.db.agents.find()
+#     agents = [transform_doc(agent) for agent in agents_cursor]
+#     return agents
