@@ -10,21 +10,20 @@ from crewai.knowledge.source.string_knowledge_source import StringKnowledgeSourc
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
 from pydantic import BaseModel, Field
 
-from utils import parse_flow_json
 
 # 🔴 Ensure CrewAI Telemetry is Fully Disabled
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
 os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""  # Prevent OpenTelemetry timeout
 os.environ["OPENAI_API_KEY"] = "sk-proj-1111"
 os.environ["OPENAI_MODEL_NAME"] = "gpt-4"
-os.environ["MISTRAL_API_KEY"] = ""
+os.environ["MISTRAL_API_KEY"] = "jIlcvnUbWBpWTT7f8jDOffD4ikTq19nR"
 output_dir = "./ai-agent-output"
 
 # Initialize the LLM using CrewAI's LLM interface with a Mistral model.
 llm = LLM(
     model="ollama/llama3.2",
     # model="mistral/pixtral-large-latest",
-    base_url="http://localhost:11434",
+    # base_url="http://localhost:11434",
     temperature=0
 )
 
@@ -287,7 +286,6 @@ def run_flow_agent(data, agents_results) -> dict:
             "FEA Analysis": "NASTRAN",
             "Finite Element Modeling": "FEMAP"
         }
-
         # Step 1: Define Flow Orchestrator Agent
         flow_orchestrator_agent = Agent(
             role="Flow Orchestrator Agent",
@@ -342,7 +340,7 @@ def run_flow_agent(data, agents_results) -> dict:
         raw_flow_result = flow_crew.kickoff()
 
         # Step 4: Parse & Validate JSON Output
-        flow_parsed_results = parse_flow_json(raw_flow_result)
+        flow_parsed_results = parse_or_wrap_json(raw_flow_result)
 
         # Step 5: Validate JSON before returning
         if not flow_parsed_results.get("nodes") or not flow_parsed_results.get("edges"):
