@@ -8,7 +8,6 @@ from crewai import Agent, Task, Crew, LLM, Process
 from crewai.knowledge.source.pdf_knowledge_source import PDFKnowledgeSource
 from crewai.knowledge.source.string_knowledge_source import StringKnowledgeSource
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 
@@ -22,8 +21,8 @@ output_dir = "./ai-agent-output"
 
 # Initialize the LLM using CrewAI's LLM interface with a Mistral model.
 llm = LLM(
-    # model="ollama/llama2",
-    model="mistral/mistral-large-latest",
+    model="ollama/llama3.2",
+    # model="mistral/pixtral-large-latest",
     # base_url="http://localhost:11434",
     temperature=0
 )
@@ -98,30 +97,31 @@ def get_tasks(agents, query):
 
 def clean_json_output(raw_output: str) -> str:
     """
-    Clean the raw output from the agent by removing markdown code fences and extra whitespace.
+    Ensures Mistral's output is a clean, valid JSON string.
     """
     cleaned = raw_output.strip()
-    # Remove markdown code fences if present.
-    if cleaned.startswith("```") and cleaned.endswith("```"):
-        cleaned = cleaned[3:-3].strip()
-    return cleaned
+
+    # Remove markdown code blocks if present
+    cleaned = re.sub(r"```json|```", "", cleaned, flags=re.MULTILINE).strip()
+
+    # Check if output is valid JSON
+    try:
+        json.loads(cleaned)  # Validate JSON
+        return cleaned
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON Parsing Error: {e}")
+        return '{"error": "Invalid JSON format"}'
 
 
 def parse_or_wrap_json(raw_result) -> dict:
     """
-    Attempt to parse raw_result (converted to a string) as JSON.
-    If parsing fails, wrap it in a dictionary under the key 'result'.
+    Parses Mistral's output into JSON. If invalid, wraps it in a dictionary.
     """
-    raw_str = str(raw_result)
-    cleaned = clean_json_output(raw_str)
+    cleaned = clean_json_output(str(raw_result))
     try:
         return json.loads(cleaned)
-    except Exception as parse_err:
-        print("Error parsing output as JSON:", str(parse_err))
-        # If parsing fails, return the cleaned string in a JSON object.
-        return {"result": cleaned}
-
-
+    except json.JSONDecodeError:
+        return {"error": "Failed to parse JSON", "raw_output": cleaned}
 def get_relevant_agents_ids(agents_data, data):
     """
     Runs the orchestrator to determine relevant agents with improved error handling.
@@ -258,7 +258,6 @@ def run_orchestrator(data, agents_data) -> dict:
         print("Error occurred:", str(e))
         return {"error": str(e)}
 
-
 def run_flow_agent(data, agents_results=None) -> dict:
     """
     Generates a hierarchical React Flow graph dynamically based on relevant Siemens agents.
@@ -289,59 +288,35 @@ def run_flow_agent(data, agents_results=None) -> dict:
             verbose=True
         )
 
-        # Step 2: Define React Flow Diagram Task
+        # Step 3: Define React Flow Diagram Task
         flow_task = Task(
             description=f"""
-            Based on the Siemens agent results:
+            Based on Siemens agent results:
             {json.dumps(agents_results, indent=2)}
 
             User Query: "{data['message']}"
 
             **TASK:**
-            - **Generate a structured React Flow JSON** showing dependencies between agents.
-            - Each **agent must be a node** with:
-                - `id`: Unique string
-                - `data.label`: The agent's role
-                - `position.x, position.y`: Auto-calculated for hierarchy
-                - `level`: Depth in the hierarchy (1 = top, increasing downwards)
-            - **Edges must represent dependencies** between agents:
-                - `source`: Parent node
-                - `target`: Child node
+            1️⃣ **Generate a React Flow JSON** showing dependencies between agents.
+            2️⃣ Each **agent must be a node** with:
+               - `id`: Unique string
+               - `data.label`: The agent's role
+               - `position.x, position.y`: Auto-calculated for hierarchy (spacing to prevent overlap)
+               - `level`: Depth in the hierarchy (1 = top, increasing downwards)
+            3️⃣ **Edges must represent dependencies** between agents:
+               - `source`: Parent node
+               - `target`: Child node
 
             🔹 **STRICT OUTPUT RULES:**
-            - MUST return **ONLY JSON** (no extra text).
-            - **DO NOT** use markdown (` ```json `) formatting.
-            - **DO NOT** include explanations or commentary.
-
-            🔹 **VALID JSON STRUCTURE:**
-            {{
-              "nodes": [
-                {{
-                  "id": "unique_id",
-                  "data": {{
-                    "label": "Agent Role"
-                  }},
-                  "position": {{
-                    "x": x_coordinate,
-                    "y": y_coordinate
-                  }},
-                  "level": hierarchical_level
-                }}
-              ],
-              "edges": [
-                {{
-                  "id": "edge_id",
-                  "source": "parent_node_id",
-                  "target": "child_node_id"
-                }}
-              ]
-            }}
+            - **DO NOT** return explanations, markdown (` ```json `), or any extra text.
+            - **ONLY** return **one valid JSON object**.
+            - **Mistral must fail if JSON is not valid.**
             """,
             expected_output="A structured React Flow JSON with 'nodes' and 'edges'.",
-            agent=flow_orchestrator_agent
+            agent=flow_orchestrator_agent,
         )
 
-        # Step 3: Run Crew for React Flow Diagram Generation
+        # Step 4: Run Crew for React Flow Diagram Generation
         flow_crew = Crew(
             agents=[flow_orchestrator_agent],
             tasks=[flow_task],
@@ -354,6 +329,7 @@ def run_flow_agent(data, agents_results=None) -> dict:
         # Step 4: Parse & Validate JSON Output
         flow_parsed_results = parse_or_wrap_json(raw_flow_result)
 
+        # Step 5: Validate JSON before returning
         if not flow_parsed_results.get("nodes") or not flow_parsed_results.get("edges"):
             return {"error": "Failed to generate valid workflow hierarchy"}
 
