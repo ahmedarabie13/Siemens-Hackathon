@@ -4,13 +4,13 @@ import threading
 from datetime import datetime
 
 
-from Agents import run_orchestrator
+from Agents import run_orchestrator, run_flow_agent
 from app.repositories.chat_repository import (
     insert_chat,
     find_chats,
     find_chat_by_id,
     update_chat_by_id,
-    delete_chat_by_id,
+    delete_chat_by_id, delete_all_chats,
 )
 from app.services.agent_service import get_agents
 
@@ -83,11 +83,13 @@ def send_message(chat_id, data):
     return updated, 200
 
 def chat_and_publish(chat, message, agents):
-    result = run_orchestrator(message, agents)
-    print('Results from chat:', result)
+    result =run_orchestrator(message, agents)
+    graph=run_flow_agent(message,result)
+    print('Results from chat:', result,graph)
     result_message = {
         'message': result,
         'owner': 'SYSTEM',
+        'graph':graph,
         'timestamp': str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     }
     update_chat_by_id(chat['_id'], {'messages': chat['messages'] + [result_message]})
@@ -101,9 +103,13 @@ def delete_chat(chat_id):
         return {'error': 'Chat not found'}, 404
     return {'result': 'Chat deleted'}, 200
 
-# def get_siemens_agents():
-#     """Retrieve all agents and return them as a Python list."""
-#
-#     agents_cursor = mongo.db.agents.find()
-#     agents = [transform_doc(agent) for agent in agents_cursor]
-#     return agents
+
+def delete_chats():
+    try:
+        deleted_count = delete_all_chats()
+    except Exception:
+        return {'error': 'Failed to delete chats'}, 500
+    if deleted_count == 0:
+        return {'error': 'No chats found to delete'}, 404
+    return {'result': f'{deleted_count} chats deleted'}, 200
+

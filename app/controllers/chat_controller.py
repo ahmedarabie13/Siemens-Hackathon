@@ -1,7 +1,9 @@
 # app/controllers/chat_controller.py
 
 from flask import Blueprint, request, jsonify
-from app.services.chat_service import create_chat, get_chats, get_chat, update_chat, send_message, delete_chat
+
+from app.services.chat_service import create_chat, get_chats, get_chat, update_chat, send_message, delete_chat, \
+    delete_all_chats, delete_chats
 
 chat_bp = Blueprint('chat', __name__)
 
@@ -36,4 +38,9 @@ def send_message_route(chat_id):
 @chat_bp.route('/<chat_id>', methods=['DELETE'])
 def delete_chat_route(chat_id):
     result, status = delete_chat(chat_id)
+    return jsonify(result), status
+
+@chat_bp.route('/', methods=['DELETE'])
+def delete_all_chats_route():
+    result, status = delete_chats()
     return jsonify(result), status

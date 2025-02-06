@@ -29,6 +29,17 @@ llm = LLM(
 )
 
 
+def save_to_file(data, filename):
+    """
+    Save JSON data to a file with timestamp.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filepath = os.path.join(output_dir, f"{filename}_{timestamp}.json")
+    with open(filepath, "w") as f:
+        json.dump(data, f, indent=4)
+    print(f"✅ Saved output to {filepath}")
+    return filepath
+
 class RelevantAgents(BaseModel):
     agent_ids: list[str] = (
         Field(...,
@@ -111,6 +122,48 @@ def parse_or_wrap_json(raw_result) -> dict:
         return {"result": cleaned}
 
 
+def get_relevant_agents_ids(agents_data, data):
+    """
+    Runs the orchestrator to determine relevant agents with improved error handling.
+    """
+    orchestrator_agent = Agent(
+        role="Orchestrator agent",
+        goal="Understand the user's query and recommend which application(s) to use and why.",
+        backstory="You are the connector, ensuring users understand the strengths of each application.",
+        llm=llm,
+        verbose=True
+    )
+    orchestrator_task_description = '\n'.join([
+        f'Given this json data about the available agents: {json.dumps(agents_data)}',
+        f"and Given this user query {data['message']}, recommend the most relevant agent(s) to handle the request.",
+        "Determine which agent(s)'s products that could be used to help in the user query implementation.",
+        "Return a list of the relevant agents ids."
+    ])
+    orchestrator_task = Task(
+        description=orchestrator_task_description,
+        expected_output="Determine which agent(s)'s product are most relevant to the user query and return a list of the relevant agents ids.",
+        output_json=RelevantAgents,
+        output_file=os.path.join(output_dir, "orchestrator_output.json"),
+        agent=orchestrator_agent,
+    )
+
+    crew_obj = Crew(
+        agents=[orchestrator_agent],
+        tasks=[orchestrator_task],
+        process=Process.sequential,
+        verbose=True,
+        # knowledge_sources=[orchestrator_knowledge_source]
+    )
+
+    raw_result = crew_obj.kickoff()
+    # relevant_agents = RelevantAgents.parse_obj(raw_result)
+    # print("Raw Crew Result:", relevant_agents.agent_ids)
+
+    results = parse_or_wrap_json(raw_result.json)
+    print("Orchestrator Results:", results)
+    return results['agent_ids']
+
+
 def run_orchestrator(data, agents_data) -> dict:
     """
     Original orchestrator task that returns the Crew's textual output as a JSON object.
@@ -132,7 +185,6 @@ def run_orchestrator(data, agents_data) -> dict:
             llm=llm,
             verbose=True
         )
-        # orchestrator_knowledge_source = StringKnowledgeSource(json.dumps(agents_data))
         orchestrator_task_description = '\n'.join([
             f'Given this json data about the available agents: {json.dumps(agents_data)}',
             f"and Given this user query {data['message']}, recommend the most relevant agent(s) to handle the request.",
@@ -173,6 +225,14 @@ def run_orchestrator(data, agents_data) -> dict:
         siemens_agents = get_agents(relevant_agents_data)
         print("Siemens Agents num:", len(siemens_agents))
         if siemens_agents:
+            manager = Agent(
+                role="Project Manager",
+                goal="Efficiently manage the crew and ensure high-quality task completion",
+                backstory="You're an experienced project manager, skilled in overseeing complex projects and guiding teams to success. Your role is to coordinate the efforts of the crew members, ensuring that each task is completed on time and to the highest standard.",
+                allow_delegation=True,
+                llm=llm,
+            )
+
             print("Siemens Agents is here")
             siemens_agents_tasks = get_tasks(siemens_agents, data['message'])
             format_agent = create_format_agent()
@@ -199,55 +259,111 @@ def run_orchestrator(data, agents_data) -> dict:
         return {"error": str(e)}
 
 
-def run_flow_agent(data, agents_data) -> dict:
+def run_flow_agent(data, agents_results=None) -> dict:
     """
-    New orchestrator-like function that instructs the agent to return a React Flow graph.
-    It expects the agent to output a JSON string with 'nodes' and 'edges'.
+    Generates a hierarchical React Flow graph dynamically based on relevant Siemens agents.
+    - Uses agent responses to determine workflow dependencies.
+    - Outputs a structured React Flow JSON graph.
     """
-    agents = get_agents(agents_data)
-    tasks = get_tasks(agents)
-
-    print("Received Task Data:", data.get("message"))
+    print("📥 Received Task Data:", data.get("message"))
 
     if "message" not in data:
         return {"error": "Missing 'message' in input data."}
 
     try:
+        # Ensure we have agent results; otherwise, return an error
+        if not agents_results or not isinstance(agents_results, dict):
+            return {"error": "Invalid or missing agent results."}
+
+        print("✅ Received Agents Results:", json.dumps(agents_results, indent=2))
+
+        # Step 1: Define Flow Orchestrator Agent
         flow_orchestrator_agent = Agent(
-            role="Flow Orchestrator agent",
+            role="Flow Orchestrator Agent",
             goal=(
-                "Generate a React Flow graph that represents the applications needed. "
-                "Return a JSON object with two keys: 'nodes' and 'edges'. "
-                "Each node must include an 'id', a 'data' dict with a 'label', and a 'position'. "
-                "Each edge must include an 'id', 'source', and 'target'. "
-                "Return only the JSON object without any markdown formatting or commentary."
+                "Generate a hierarchical React Flow JSON representing dependencies between agents. "
+                "Ensure structured JSON output with clear parent-child relationships."
             ),
-            backstory="You are the central orchestrator. Your output must be valid JSON.",
+            backstory="You specialize in structuring workflows based on agent interactions and dependencies.",
             llm=llm,
             verbose=True
         )
 
+        # Step 2: Define React Flow Diagram Task
         flow_task = Task(
-            description=data["message"],
-            expected_output=(
-                "Return a JSON object with 'nodes' and 'edges' keys defining a React Flow graph."
-            ),
-            agent=flow_orchestrator_agent,
+            description=f"""
+            Based on the Siemens agent results:
+            {json.dumps(agents_results, indent=2)}
+
+            User Query: "{data['message']}"
+
+            **TASK:**
+            - **Generate a structured React Flow JSON** showing dependencies between agents.
+            - Each **agent must be a node** with:
+                - `id`: Unique string
+                - `data.label`: The agent's role
+                - `position.x, position.y`: Auto-calculated for hierarchy
+                - `level`: Depth in the hierarchy (1 = top, increasing downwards)
+            - **Edges must represent dependencies** between agents:
+                - `source`: Parent node
+                - `target`: Child node
+
+            🔹 **STRICT OUTPUT RULES:**
+            - MUST return **ONLY JSON** (no extra text).
+            - **DO NOT** use markdown (` ```json `) formatting.
+            - **DO NOT** include explanations or commentary.
+
+            🔹 **VALID JSON STRUCTURE:**
+            {{
+              "nodes": [
+                {{
+                  "id": "unique_id",
+                  "data": {{
+                    "label": "Agent Role"
+                  }},
+                  "position": {{
+                    "x": x_coordinate,
+                    "y": y_coordinate
+                  }},
+                  "level": hierarchical_level
+                }}
+              ],
+              "edges": [
+                {{
+                  "id": "edge_id",
+                  "source": "parent_node_id",
+                  "target": "child_node_id"
+                }}
+              ]
+            }}
+            """,
+            expected_output="A structured React Flow JSON with 'nodes' and 'edges'.",
+            agent=flow_orchestrator_agent
         )
 
-        crew_obj = Crew(
-            agents=[flow_orchestrator_agent] + agents,
-            tasks=[flow_task] + tasks,
+        # Step 3: Run Crew for React Flow Diagram Generation
+        flow_crew = Crew(
+            agents=[flow_orchestrator_agent],
+            tasks=[flow_task],
+            process=Process.sequential,
             verbose=True
         )
 
-        raw_result = crew_obj.kickoff()
-        print("Raw Crew Result:", raw_result)
+        raw_flow_result = flow_crew.kickoff()
 
-        return parse_or_wrap_json(raw_result)
+        # Step 4: Parse & Validate JSON Output
+        flow_parsed_results = parse_or_wrap_json(raw_flow_result)
+
+        if not flow_parsed_results.get("nodes") or not flow_parsed_results.get("edges"):
+            return {"error": "Failed to generate valid workflow hierarchy"}
+
+        # Step 5: Save JSON results for debugging/logging
+        save_to_file(flow_parsed_results, "flow_hierarchy_results")
+
+        return flow_parsed_results
 
     except Exception as e:
-        print("Error occurred:", str(e))
+        print("❌ Error occurred:", str(e))
         return {"error": str(e)}
 
 

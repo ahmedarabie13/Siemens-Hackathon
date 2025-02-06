@@ -32,3 +32,7 @@ def update_chat_by_id(chat_id, update_data):
 def delete_chat_by_id(chat_id):
     result = mongo.db.chats.delete_one({"_id": ObjectId(chat_id)})
     return result.deleted_count > 0
+
+def delete_all_chats():
+    result = mongo.db.chats.delete_many({})
+    return result.deleted_count
