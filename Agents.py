@@ -1,12 +1,16 @@
 import os
 import json
+import re
 from datetime import datetime
+from pathlib import Path
 
 from crewai import Agent, Task, Crew, LLM, Process
 from crewai.knowledge.source.pdf_knowledge_source import PDFKnowledgeSource
 from crewai.knowledge.source.string_knowledge_source import StringKnowledgeSource
+from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
+
 
 # 🔴 Ensure CrewAI Telemetry is Fully Disabled
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
@@ -29,6 +33,15 @@ class RelevantAgents(BaseModel):
     agent_ids: list[str] = (
         Field(...,
               title="the ids of the agents that are relevant to the user query and could help in the implementation"))
+
+
+# pdf_source = PDFKnowledgeSource(
+#     file_paths='HEEDS MDO.pdf',
+#     description="Documentation of HEEDS MDAO Product"
+# )
+text_file_source = TextFileKnowledgeSource(
+    file_paths='results_formatted_example.txt'
+)
 
 
 def get_agents(agents_data):
@@ -162,37 +175,28 @@ def run_orchestrator(data, agents_data) -> dict:
         if siemens_agents:
             print("Siemens Agents is here")
             siemens_agents_tasks = get_tasks(siemens_agents, data['message'])
-            # heeds_pds_docs = PDFKnowledgeSource("dependencies/HEEDS MDO.pdf")
+            format_agent = create_format_agent()
+            format_task = create_format_task(format_agent)
             siemens_agent_crew = Crew(
-                agents=siemens_agents,
-                tasks=siemens_agents_tasks,
+                agents=siemens_agents + [format_agent],
+                tasks=siemens_agents_tasks + [format_task],
                 process=Process.sequential,
                 verbose=True,
-                # knowledge_sources=[heeds_pds_docs]
+                knowledge_sources=[text_file_source,
+                                   # pdf_source,
+                                   ]
             )
             final_results = siemens_agent_crew.kickoff()
             print('Final Results:', final_results)
-
-            # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            # filename = f"final_results_{timestamp}.json"
-            # with open(filename, "w") as file:
-            #     # file.write(parse_or_wrap_json(final_results))
-            #     json.dump(parse_or_wrap_json(final_results), file, indent=4)
             return parse_or_wrap_json(final_results)
         else:
             print("Siemens Agents is none")
             return {"error": "No relevant agents found."}
 
-        # print("Raw Crew Result:", raw_result.get('agent_ids'))
-        # print('ids: ', results['agent_ids'])
 
     except Exception as e:
         print("Error occurred:", str(e))
         return {"error": str(e)}
-
-
-# def create_siemens_agents(orchestrator_results, agents_data) -> dict:
-#     return
 
 
 def run_flow_agent(data, agents_data) -> dict:
@@ -245,3 +249,22 @@ def run_flow_agent(data, agents_data) -> dict:
     except Exception as e:
         print("Error occurred:", str(e))
         return {"error": str(e)}
+
+
+def create_format_agent():
+    return Agent(
+        role='Message Formatter',
+        goal='Format and beautify text messages into chat-like responses',
+        backstory='Specialist in text formatting and presentation',
+        allow_delegation=False,
+        llm=llm,
+    )
+
+
+def create_format_task(agent):
+    return Task(
+        description='Format and beautify the input message',
+        agent=agent,
+        expected_output='A well-formatted informative chat-style message that highlights the key points',
+        output_file=os.path.join(output_dir, "final_results_formatted.txt"),
+    )
