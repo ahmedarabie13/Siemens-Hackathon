@@ -1,6 +1,10 @@
 import os
 import json
-from crewai import Agent, Task, Crew, LLM
+from datetime import datetime
+
+from crewai import Agent, Task, Crew, LLM, Process
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 # 🔴 Ensure CrewAI Telemetry is Fully Disabled
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
@@ -8,12 +12,21 @@ os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""  # Prevent OpenTelemetry timeout
 os.environ["OPENAI_API_KEY"] = "sk-proj-1111"
 os.environ["OPENAI_MODEL_NAME"] = "gpt-4"
 os.environ["MISTRAL_API_KEY"] = "jIlcvnUbWBpWTT7f8jDOffD4ikTq19nR"
+output_dir = "./ai-agent-output"
 
 # Initialize the LLM using CrewAI's LLM interface with a Mistral model.
 llm = LLM(
+    # model="ollama/llama2",
     model="mistral/mistral-large-latest",
-    temperature=0.1
+    # base_url="http://localhost:11434",
+    temperature=0
 )
+
+
+class RelevantAgents(BaseModel):
+    agent_ids: list[str] = (
+        Field(...,
+              title="the ids of the agents that are relevant to the user query and could help in the implementation"))
 
 
 def get_agents(agents_data):
@@ -31,17 +44,18 @@ def get_agents(agents_data):
     ]
 
 
-def get_tasks(agents):
+def get_tasks(agents, query):
     """
     Dynamically create a list of tasks for each agent.
     """
     return [
         Task(
-            description=f"{agent.role} should respond to the user query based on its expertise.",
-            expected_output=f"Detailed explanation from the perspective of {agent.role}.",
+            # description=f"{agent.role} should respond to the user query {query} based on its expertise.",
+            description=f"{agent.role} should respond to the user query {query} based on its expertise reply as short as possible.",
+            # expected_output=f"Detailed explanation from the perspective of {agent.role}.",
+            expected_output=f"Brief but complete explanation from the perspective of {agent.role} as short as possible.",
             agent=agent,
-            llm=llm,
-            verbose=True
+            output_file=os.path.join(output_dir, "step_4_procurement_report.html")
         ) for agent in agents
     ]
 
@@ -76,8 +90,9 @@ def run_orchestrator(data, agents_data) -> dict:
     """
     Original orchestrator task that returns the Crew's textual output as a JSON object.
     """
-    agents = get_agents(agents_data)
-    tasks = get_tasks(agents)
+    os.makedirs(output_dir, exist_ok=True)
+    # agents = get_agents(agents_data)
+    # tasks = get_tasks(agents)
 
     print("Received Task Data:", data.get("message"))
 
@@ -92,29 +107,74 @@ def run_orchestrator(data, agents_data) -> dict:
             llm=llm,
             verbose=True
         )
-
+        orchestrator_task_description = '\n'.join([
+            f'Given this json data about the available agents: {json.dumps(agents_data)}',
+            f"and Given this user query {data['message']}, recommend the most relevant agent(s) to handle the request.",
+            "Return a list of the relevant agents ids."
+        ])
         orchestrator_task = Task(
-            description=data["message"],
-            expected_output="Determine which applications are relevant and explain their contributions.",
-            agent=orchestrator_agent,
-            llm=llm,
-            verbose=True
+            description=orchestrator_task_description,
+            expected_output="Determine which agent(s)'s product are most relevant to the user query and return a list of the relevant agents ids.",
+            output_json=RelevantAgents,
+            agent=orchestrator_agent
         )
 
         crew_obj = Crew(
-            agents=[orchestrator_agent] + agents,
-            tasks=[orchestrator_task] + tasks,
-            verbose=True
+            agents=[orchestrator_agent],
+            tasks=[orchestrator_task],
+            process=Process.sequential,
+            verbose=True,
         )
 
         raw_result = crew_obj.kickoff()
-        print("Raw Crew Result:", raw_result)
+        # relevant_agents = RelevantAgents.parse_obj(raw_result)
+        # print("Raw Crew Result:", relevant_agents.agent_ids)
 
-        return parse_or_wrap_json(raw_result)
+        results = parse_or_wrap_json(raw_result.json)
+        print("Orchestrator Results:", results)
+        agent_ids = results['agent_ids']
+        # print('Agents Data: ', agents_data)
+        relevant_agents_data = []
+        for agent_data in agents_data:
+            if agent_data['_id'] in agent_ids:
+                print("Relevant Agent Data:", agent_data['_id'])
+                relevant_agents_data.append(agent_data)
+
+        # siemens_agents = get_agents([agent_data if agent_data['_id'] in agent_ids else None for agent_data in agents_data])
+        siemens_agents = get_agents(relevant_agents_data)
+        print("Siemens Agents num:", len(siemens_agents))
+        if siemens_agents:
+            print("Siemens Agents is here")
+            siemens_agents_tasks = get_tasks(siemens_agents, data['message'])
+            siemens_agent_crew = Crew(
+                agents=siemens_agents,
+                tasks=siemens_agents_tasks,
+                process=Process.sequential,
+                verbose=True
+            )
+            final_results = siemens_agent_crew.kickoff()
+            print('Final Results:', final_results)
+
+            # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # filename = f"final_results_{timestamp}.json"
+            # with open(filename, "w") as file:
+            #     # file.write(parse_or_wrap_json(final_results))
+            #     json.dump(parse_or_wrap_json(final_results), file, indent=4)
+            return parse_or_wrap_json(final_results)
+        else:
+            print("Siemens Agents is none")
+            return {"error": "No relevant agents found."}
+
+        # print("Raw Crew Result:", raw_result.get('agent_ids'))
+        # print('ids: ', results['agent_ids'])
 
     except Exception as e:
         print("Error occurred:", str(e))
         return {"error": str(e)}
+
+
+# def create_siemens_agents(orchestrator_results, agents_data) -> dict:
+#     return
 
 
 def run_flow_agent(data, agents_data) -> dict:
@@ -167,5 +227,3 @@ def run_flow_agent(data, agents_data) -> dict:
     except Exception as e:
         print("Error occurred:", str(e))
         return {"error": str(e)}
-
-
