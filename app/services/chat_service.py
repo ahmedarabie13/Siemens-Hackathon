@@ -10,7 +10,7 @@ from app.repositories.chat_repository import (
     find_chats,
     find_chat_by_id,
     update_chat_by_id,
-    delete_chat_by_id,
+    delete_chat_by_id, delete_all_chats,
 )
 from app.services.agent_service import get_agents
 
@@ -100,6 +100,17 @@ def delete_chat(chat_id):
     if not deleted:
         return {'error': 'Chat not found'}, 404
     return {'result': 'Chat deleted'}, 200
+
+
+def delete_chats():
+    try:
+        deleted_count = delete_all_chats()
+    except Exception:
+        return {'error': 'Failed to delete chats'}, 500
+    if deleted_count == 0:
+        return {'error': 'No chats found to delete'}, 404
+    return {'result': f'{deleted_count} chats deleted'}, 200
+
 
 # def get_siemens_agents():
 #     """Retrieve all agents and return them as a Python list."""
