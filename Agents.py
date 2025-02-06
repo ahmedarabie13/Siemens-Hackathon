@@ -10,19 +10,20 @@ from crewai.knowledge.source.string_knowledge_source import StringKnowledgeSourc
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
 from pydantic import BaseModel, Field
 
-
 # 🔴 Ensure CrewAI Telemetry is Fully Disabled
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
 os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""  # Prevent OpenTelemetry timeout
-os.environ["OPENAI_API_KEY"] = "sk-proj-1111"
-os.environ["OPENAI_MODEL_NAME"] = "gpt-4"
-os.environ["MISTRAL_API_KEY"] = "jIlcvnUbWBpWTT7f8jDOffD4ikTq19nR"
+# os.environ["OPENAI_API_KEY"] = "sk-proj-1111"
+# os.environ["OPENAI_MODEL_NAME"] = "gpt-4"
+# os.environ["MISTRAL_API_KEY"] = "jIlcvnUbWBpWTT7f8jDOffD4ikTq19nR"
+os.environ["MISTRAL_API_KEY"] = "cmxj43PsVwrGYxlESmRpRiREz3yq3VpN"
 output_dir = "./ai-agent-output"
 
 # Initialize the LLM using CrewAI's LLM interface with a Mistral model.
 llm = LLM(
     # model="ollama/llama3.2",
-    model="mistral/pixtral-large-latest",
+    model="mistral/mistral-large-latest",
+    # model="mistral/pixtral-large-latest",
     # base_url="http://localhost:11434",
     temperature=0
 )
@@ -38,6 +39,7 @@ def save_to_file(data, filename):
         json.dump(data, f, indent=4)
     print(f"✅ Saved output to {filepath}")
     return filepath
+
 
 class RelevantAgents(BaseModel):
     agent_ids: list[str] = (
@@ -95,6 +97,32 @@ def get_tasks(agents, query):
     ]
 
 
+def clean_json_messages_output(raw_output: str) -> str:
+    """
+    Clean the raw output from the agent by removing markdown code fences and extra whitespace.
+    """
+    cleaned = raw_output.strip()
+    # Remove markdown code fences if present.
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        cleaned = cleaned[3:-3].strip()
+    return cleaned
+
+
+def parse_or_wrap_messages_json(raw_result) -> dict:
+    """
+    Attempt to parse raw_result (converted to a string) as JSON.
+    If parsing fails, wrap it in a dictionary under the key 'result'.
+    """
+    raw_str = str(raw_result)
+    cleaned = clean_json_messages_output(raw_str)
+    try:
+        return json.loads(cleaned)
+    except Exception as parse_err:
+        print("Error parsing output as JSON:", str(parse_err))
+        # If parsing fails, return the cleaned string in a JSON object.
+        return {"result": cleaned}
+
+
 def clean_json_output(raw_output: str) -> str:
     """
     Ensures Mistral's output is a clean, valid JSON string.
@@ -122,6 +150,8 @@ def parse_or_wrap_json(raw_result) -> dict:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         return {"error": "Failed to parse JSON", "raw_output": cleaned}
+
+
 def get_relevant_agents_ids(agents_data, data):
     """
     Runs the orchestrator to determine relevant agents with improved error handling.
@@ -248,7 +278,7 @@ def run_orchestrator(data, agents_data) -> dict:
             )
             final_results = siemens_agent_crew.kickoff()
             print('Final Results:', final_results)
-            return parse_or_wrap_json(final_results)
+            return parse_or_wrap_messages_json(final_results)
         else:
             print("Siemens Agents is none")
             return {"error": "No relevant agents found."}
@@ -257,6 +287,7 @@ def run_orchestrator(data, agents_data) -> dict:
     except Exception as e:
         print("Error occurred:", str(e))
         return {"error": str(e)}
+
 
 def run_flow_agent(data, agents_results) -> dict:
     """
@@ -276,17 +307,26 @@ def run_flow_agent(data, agents_results) -> dict:
         print("✅ Received Agents Results:", json.dumps(agents_results, indent=2))
 
         # 🔹 Siemens Product Mapping (Restricts Mistral to Valid Names)
-        siemens_product_map = {
-            "CAD Modeling": "Siemens NX",
-            "Simulation": "Simcenter 3D",
-            "Thermal Management": "Simcenter STAR-CCM+",
-            "System Simulation": "Simcenter Amesim",
-            "Multidisciplinary Design": "HEEDS",
-            "Test & Validation": "Simcenter Testlab",
-            "Simulation Data Management": "Teamcenter Simulation",
-            "FEA Analysis": "Simcenter Nastran",
-            "Topology Optimization": "Simcenter OptiStruct"
-        }
+        # siemens_product_map = {
+        #     "CAD Modeling": "Siemens NX",
+        #     "Simulation": "Simcenter 3D",
+        #     "Thermal Management": "Simcenter STAR-CCM+",
+        #     "System Simulation": "Simcenter Amesim",
+        #     "Multidisciplinary Design": "HEEDS",
+        #     "Test & Validation": "Simcenter Testlab",
+        #     "Simulation Data Management": "Teamcenter Simulation",
+        #     "FEA Analysis": "Simcenter Nastran",
+        #     "Topology Optimization": "Simcenter OptiStruct"
+        # }
+        siemens_product_map = {"CAD Modeling": "NX",
+                               "Simulation": "Simcenter 3D",
+                               "Thermal Management": "Star-CCM+",
+                               "System Simulation": "AMESIM",
+                               "Multidisciplinary Design": "HEEDS",
+                               "Test & Validation": "Simcenter Testlab",
+                               "Simulation Data Management": "Teamcenter Simulation",
+                               "FEA Analysis": "NASTRAN",
+                               "Finite Element Modeling": "FEMAP"}
 
         # Step 1: Define Flow Orchestrator Agent
         flow_orchestrator_agent = Agent(
@@ -356,6 +396,7 @@ def run_flow_agent(data, agents_results) -> dict:
     except Exception as e:
         print("❌ Error occurred:", str(e))
         return {"error": str(e)}
+
 
 def create_format_agent():
     return Agent(
