@@ -21,8 +21,8 @@ output_dir = "./ai-agent-output"
 
 # Initialize the LLM using CrewAI's LLM interface with a Mistral model.
 llm = LLM(
-    model="ollama/llama3.2",
-    # model="mistral/pixtral-large-latest",
+    # model="ollama/llama3.2",
+    model="mistral/pixtral-large-latest",
     # base_url="http://localhost:11434",
     temperature=0
 )
