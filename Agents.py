@@ -3,6 +3,8 @@ import json
 from datetime import datetime
 
 from crewai import Agent, Task, Crew, LLM, Process
+from crewai.knowledge.source.pdf_knowledge_source import PDFKnowledgeSource
+from crewai.knowledge.source.string_knowledge_source import StringKnowledgeSource
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
@@ -51,11 +53,21 @@ def get_tasks(agents, query):
     return [
         Task(
             # description=f"{agent.role} should respond to the user query {query} based on its expertise.",
-            description=f"{agent.role} should respond to the user query {query} based on its expertise reply as short as possible.",
+            description="\n".join(
+                [
+                    f"{agent.role} should respond to the user query {query} based on its expertise reply as short as possible.",
+                    "use the siemens product assigned for this agent and try to explain if applicable how this product will be helpful in the implementation of the user query",
+                    "if you are not the first agent learn from the previous agent's output and try to provide a more detailed explanation only on your expertise",
+                    "highlight in what part of the query your agent's product will be used",
+                ]),
             # expected_output=f"Detailed explanation from the perspective of {agent.role}.",
-            expected_output=f"Brief but complete explanation from the perspective of {agent.role} as short as possible.",
+            expected_output="\n".join(
+                [f"Brief but complete explanation from the perspective of {agent.role} as short as possible.",
+                 "highlight how your agent will be used in the implementation of the user query but make it as short as possible",
+                 "use the previous agents output and change only the parts in your agent's expertise",
+                 ]),
             agent=agent,
-            output_file=os.path.join(output_dir, "step_4_procurement_report.html")
+            output_file=os.path.join(output_dir, "final_results.txt")
         ) for agent in agents
     ]
 
@@ -107,16 +119,19 @@ def run_orchestrator(data, agents_data) -> dict:
             llm=llm,
             verbose=True
         )
+        # orchestrator_knowledge_source = StringKnowledgeSource(json.dumps(agents_data))
         orchestrator_task_description = '\n'.join([
             f'Given this json data about the available agents: {json.dumps(agents_data)}',
             f"and Given this user query {data['message']}, recommend the most relevant agent(s) to handle the request.",
+            "Determine which agent(s)'s products that could be used to help in the user query implementation.",
             "Return a list of the relevant agents ids."
         ])
         orchestrator_task = Task(
             description=orchestrator_task_description,
             expected_output="Determine which agent(s)'s product are most relevant to the user query and return a list of the relevant agents ids.",
             output_json=RelevantAgents,
-            agent=orchestrator_agent
+            output_file=os.path.join(output_dir, "orchestrator_output.json"),
+            agent=orchestrator_agent,
         )
 
         crew_obj = Crew(
@@ -124,6 +139,7 @@ def run_orchestrator(data, agents_data) -> dict:
             tasks=[orchestrator_task],
             process=Process.sequential,
             verbose=True,
+            # knowledge_sources=[orchestrator_knowledge_source]
         )
 
         raw_result = crew_obj.kickoff()
@@ -146,11 +162,13 @@ def run_orchestrator(data, agents_data) -> dict:
         if siemens_agents:
             print("Siemens Agents is here")
             siemens_agents_tasks = get_tasks(siemens_agents, data['message'])
+            # heeds_pds_docs = PDFKnowledgeSource("dependencies/HEEDS MDO.pdf")
             siemens_agent_crew = Crew(
                 agents=siemens_agents,
                 tasks=siemens_agents_tasks,
                 process=Process.sequential,
-                verbose=True
+                verbose=True,
+                # knowledge_sources=[heeds_pds_docs]
             )
             final_results = siemens_agent_crew.kickoff()
             print('Final Results:', final_results)

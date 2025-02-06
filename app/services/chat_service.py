@@ -90,7 +90,7 @@ def chat_and_publish(chat, message, agents):
         'owner': 'SYSTEM',
         'timestamp': str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     }
-    # update_chat_by_id(chat['_id'], {'messages': chat['messages'] + result_message})
+    update_chat_by_id(chat['_id'], {'messages': chat['messages'] + [result_message]})
 
 def delete_chat(chat_id):
     try:
