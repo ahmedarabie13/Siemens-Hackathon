@@ -88,18 +88,14 @@ def chat_and_publish(chat, message, agents):
     # Step 2: Attempt to Generate Graph
     graph = run_flow_agent(message, result)
 
-    # Step 3: Determine if Graph is Valid
-    graph_valid = isinstance(graph, dict) and "nodes" in graph and "edges" in graph
-
     # Step 4: Construct Result Message
     result_message = {
         'message': result,
         'owner': 'SYSTEM',
+        'graph':graph,
         'timestamp': str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     }
 
-    if graph_valid:
-        result_message['graph'] = graph  # Include graph only if valid
     update_chat_by_id(chat['_id'], {'messages': chat['messages'] + [result_message]})
 
 def delete_chat(chat_id):

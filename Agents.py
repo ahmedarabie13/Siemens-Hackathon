@@ -277,15 +277,15 @@ def run_flow_agent(data, agents_results) -> dict:
 
         # 🔹 Siemens Product Mapping (Restricts Mistral to Valid Names)
         siemens_product_map = {
-            "CAD Modeling": "Siemens NX",
+            "CAD Modeling": "NX",
             "Simulation": "Simcenter 3D",
-            "Thermal Management": "Simcenter STAR-CCM+",
-            "System Simulation": "Simcenter Amesim",
+            "Thermal Management": "Star-CCM+",
+            "System Simulation": "AMESIM",
             "Multidisciplinary Design": "HEEDS",
             "Test & Validation": "Simcenter Testlab",
             "Simulation Data Management": "Teamcenter Simulation",
-            "FEA Analysis": "Simcenter Nastran",
-            "Topology Optimization": "Simcenter OptiStruct"
+            "FEA Analysis": "NASTRAN",
+            "Finite Element Modeling": "FEMAP"
         }
 
         # Step 1: Define Flow Orchestrator Agent
