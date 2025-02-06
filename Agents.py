@@ -10,20 +10,21 @@ from crewai.knowledge.source.string_knowledge_source import StringKnowledgeSourc
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
 from pydantic import BaseModel, Field
 
+from utils import parse_flow_json
 
 # 🔴 Ensure CrewAI Telemetry is Fully Disabled
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
 os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""  # Prevent OpenTelemetry timeout
 os.environ["OPENAI_API_KEY"] = "sk-proj-1111"
 os.environ["OPENAI_MODEL_NAME"] = "gpt-4"
-os.environ["MISTRAL_API_KEY"] = "jIlcvnUbWBpWTT7f8jDOffD4ikTq19nR"
+os.environ["MISTRAL_API_KEY"] = ""
 output_dir = "./ai-agent-output"
 
 # Initialize the LLM using CrewAI's LLM interface with a Mistral model.
 llm = LLM(
-    # model="ollama/llama3.2",
-    model="mistral/pixtral-large-latest",
-    # base_url="http://localhost:11434",
+    model="ollama/llama3.2",
+    # model="mistral/pixtral-large-latest",
+    base_url="http://localhost:11434",
     temperature=0
 )
 
@@ -97,31 +98,30 @@ def get_tasks(agents, query):
 
 def clean_json_output(raw_output: str) -> str:
     """
-    Ensures Mistral's output is a clean, valid JSON string.
+    Clean the raw output from the agent by removing markdown code fences and extra whitespace.
     """
     cleaned = raw_output.strip()
-
-    # Remove markdown code blocks if present
-    cleaned = re.sub(r"```json|```", "", cleaned, flags=re.MULTILINE).strip()
-
-    # Check if output is valid JSON
-    try:
-        json.loads(cleaned)  # Validate JSON
-        return cleaned
-    except json.JSONDecodeError as e:
-        print(f"❌ JSON Parsing Error: {e}")
-        return '{"error": "Invalid JSON format"}'
+    # Remove markdown code fences if present.
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        cleaned = cleaned[3:-3].strip()
+    return cleaned
 
 
 def parse_or_wrap_json(raw_result) -> dict:
     """
-    Parses Mistral's output into JSON. If invalid, wraps it in a dictionary.
+    Attempt to parse raw_result (converted to a string) as JSON.
+    If parsing fails, wrap it in a dictionary under the key 'result'.
     """
-    cleaned = clean_json_output(str(raw_result))
+    raw_str = str(raw_result)
+    cleaned = clean_json_output(raw_str)
     try:
         return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return {"error": "Failed to parse JSON", "raw_output": cleaned}
+    except Exception as parse_err:
+        print("Error parsing output as JSON:", str(parse_err))
+        # If parsing fails, return the cleaned string in a JSON object.
+        return {"result": cleaned}
+
+
 def get_relevant_agents_ids(agents_data, data):
     """
     Runs the orchestrator to determine relevant agents with improved error handling.
@@ -342,7 +342,7 @@ def run_flow_agent(data, agents_results) -> dict:
         raw_flow_result = flow_crew.kickoff()
 
         # Step 4: Parse & Validate JSON Output
-        flow_parsed_results = parse_or_wrap_json(raw_flow_result)
+        flow_parsed_results = parse_flow_json(raw_flow_result)
 
         # Step 5: Validate JSON before returning
         if not flow_parsed_results.get("nodes") or not flow_parsed_results.get("edges"):
