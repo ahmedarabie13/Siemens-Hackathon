@@ -258,7 +258,7 @@ def run_orchestrator(data, agents_data) -> dict:
         print("Error occurred:", str(e))
         return {"error": str(e)}
 
-def run_flow_agent(data, agents_results=None) -> dict:
+def run_flow_agent(data, agents_results) -> dict:
     """
     Generates a hierarchical React Flow graph dynamically based on relevant Siemens agents.
     - Uses agent responses to determine workflow dependencies.
@@ -270,25 +270,37 @@ def run_flow_agent(data, agents_results=None) -> dict:
         return {"error": "Missing 'message' in input data."}
 
     try:
-        # Ensure we have agent results; otherwise, return an error
         if not agents_results or not isinstance(agents_results, dict):
             return {"error": "Invalid or missing agent results."}
 
         print("✅ Received Agents Results:", json.dumps(agents_results, indent=2))
 
+        # 🔹 Siemens Product Mapping (Restricts Mistral to Valid Names)
+        siemens_product_map = {
+            "CAD Modeling": "Siemens NX",
+            "Simulation": "Simcenter 3D",
+            "Thermal Management": "Simcenter STAR-CCM+",
+            "System Simulation": "Simcenter Amesim",
+            "Multidisciplinary Design": "HEEDS",
+            "Test & Validation": "Simcenter Testlab",
+            "Simulation Data Management": "Teamcenter Simulation",
+            "FEA Analysis": "Simcenter Nastran",
+            "Topology Optimization": "Simcenter OptiStruct"
+        }
+
         # Step 1: Define Flow Orchestrator Agent
         flow_orchestrator_agent = Agent(
             role="Flow Orchestrator Agent",
             goal=(
-                "Generate a hierarchical React Flow JSON representing dependencies between agents. "
-                "Ensure structured JSON output with clear parent-child relationships."
+                "Generate a hierarchical React Flow JSON representing dependencies between Siemens products. "
+                "Only use product names from the predefined Siemens software list."
             ),
-            backstory="You specialize in structuring workflows based on agent interactions and dependencies.",
+            backstory="You specialize in structuring workflows based on Siemens software dependencies.",
             llm=llm,
             verbose=True
         )
 
-        # Step 3: Define React Flow Diagram Task
+        # Step 2: Define React Flow Diagram Task
         flow_task = Task(
             description=f"""
             Based on Siemens agent results:
@@ -297,26 +309,29 @@ def run_flow_agent(data, agents_results=None) -> dict:
             User Query: "{data['message']}"
 
             **TASK:**
-            1️⃣ **Generate a React Flow JSON** showing dependencies between agents.
-            2️⃣ Each **agent must be a node** with:
-               - `id`: Unique string
-               - `data.label`: The agent's role
+            1️⃣ **Generate a React Flow JSON** showing dependencies between Siemens products.
+            2️⃣ Each **product must be a node** with:
+               - `id`: Unique string based on the product name
+               - `data.label`: The correct Siemens product name (MUST match the provided Siemens product list)
                - `position.x, position.y`: Auto-calculated for hierarchy (spacing to prevent overlap)
                - `level`: Depth in the hierarchy (1 = top, increasing downwards)
-            3️⃣ **Edges must represent dependencies** between agents:
-               - `source`: Parent node
-               - `target`: Child node
+            3️⃣ **Edges must represent dependencies** between products:
+               - `source`: Parent node (higher-level product)
+               - `target`: Child node (dependent product)
 
             🔹 **STRICT OUTPUT RULES:**
+            - Nodes must use **ONLY these Siemens product names**:
+              {json.dumps(list(siemens_product_map.values()), indent=2)}
+            - **DO NOT** generate new product names.
             - **DO NOT** return explanations, markdown (` ```json `), or any extra text.
             - **ONLY** return **one valid JSON object**.
-            - **Mistral must fail if JSON is not valid.**
+            - **Ensure correct hierarchy positioning.**
             """,
-            expected_output="A structured React Flow JSON with 'nodes' and 'edges'.",
+            expected_output="A structured React Flow JSON with 'nodes' and 'edges' using Siemens product names.",
             agent=flow_orchestrator_agent,
         )
 
-        # Step 4: Run Crew for React Flow Diagram Generation
+        # Step 3: Run Crew for React Flow Diagram Generation
         flow_crew = Crew(
             agents=[flow_orchestrator_agent],
             tasks=[flow_task],
@@ -333,7 +348,7 @@ def run_flow_agent(data, agents_results=None) -> dict:
         if not flow_parsed_results.get("nodes") or not flow_parsed_results.get("edges"):
             return {"error": "Failed to generate valid workflow hierarchy"}
 
-        # Step 5: Save JSON results for debugging/logging
+        # Step 6: Save JSON results for debugging/logging
         save_to_file(flow_parsed_results, "flow_hierarchy_results")
 
         return flow_parsed_results
@@ -341,7 +356,6 @@ def run_flow_agent(data, agents_results=None) -> dict:
     except Exception as e:
         print("❌ Error occurred:", str(e))
         return {"error": str(e)}
-
 
 def create_format_agent():
     return Agent(
