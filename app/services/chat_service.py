@@ -89,6 +89,7 @@ def chat_and_publish(chat, message, agents):
     result_message = {
         'message': result,
         'owner': 'SYSTEM',
+        'graph':graph,
         'timestamp': str(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     }
     update_chat_by_id(chat['_id'], {'messages': chat['messages'] + [result_message]})
